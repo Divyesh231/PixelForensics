@@ -2,9 +2,19 @@
 
 A digital image tampering analysis tool built with Python, OpenCV, and Streamlit.
 
-![PixelForensics Output Preview](assets/demo_preview.png)
-
 PixelForensics uses passive (blind) image forensics to detect copy-move cloning, image splicing, and localized edits from a single photograph without needing the original unedited reference image.
+
+---
+
+## Visual Output & Demo
+
+Analysis running on the MICC-F220 benchmark dataset:
+
+### 1. Cloned Object Detection — Antique Firearms (`DSC_0812tamp133.jpg`)
+![Firearms Tampering Detection](assets/Screenshot%202026-10-27%20165420.png)
+
+### 2. Duplicated Shelf Detection — Bookstore Aisle (`CRW_4853tamp27.jpg`)
+![Bookstore Tampering Detection](assets/Screenshot%202026-10-27%20165840.png)
 
 ---
 
