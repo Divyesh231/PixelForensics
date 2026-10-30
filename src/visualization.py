@@ -80,10 +80,11 @@ def draw_mask_overlay(image, mask, color=(255, 50, 50), alpha=0.45):
     return result
 
 
-def fuse_evidence(ela_diff, cm_mask, noise_map, weights=(0.35, 0.45, 0.20)):
+def fuse_evidence(ela_diff, cm_mask, noise_map, weights=(0.50, 0.30, 0.20)):
     """
     Combine all three engine outputs into one fused evidence map.
-    Copy-move gets the highest weight because its the most reliable signal.
+    Copy-move receives the largest heuristic weight. This map is for
+    visualization and is not a calibrated probability map.
     """
     h, w = ela_diff.shape[:2]
 
@@ -119,41 +120,41 @@ def get_verdict(ela_score, cm_score, noise_score, cm_matches=0, cm_clusters=0):
     # copy-move findings
     if cm_clusters > 0 and cm_matches >= 5:
         findings.append(
-            f"Copy-move detected: {cm_matches} keypoint matches in "
+            f"Copy-move-like feature cluster found: {cm_matches} keypoint matches in "
             f"{cm_clusters} cluster(s)."
         )
     elif cm_matches > 0:
         findings.append(f"Minor feature correlations ({cm_matches} pairs), "
                         f"below threshold.")
     else:
-        findings.append("No copy-move duplication found.")
+        findings.append("No copy-move-like feature cluster found.")
 
     # ELA findings
     if ela_score > 0.65:
-        findings.append("Strong compression inconsistency in localized region.")
+        findings.append("Strong ELA variation; inspect the map for context.")
     elif ela_score > 0.40:
-        findings.append("Moderate compression variance detected.")
+        findings.append("Moderate ELA variation; inspect the map for context.")
     else:
-        findings.append("Compression levels look uniform across the image.")
+        findings.append("No strong ELA variation in this heuristic check.")
 
     # noise findings
     if noise_score > 0.60:
-        findings.append("Noise profile anomaly detected in parts of the image.")
+        findings.append("Local residual variation is elevated in some regions.")
     else:
-        findings.append("Noise profile is consistent throughout.")
+        findings.append("No strong local residual variation in this heuristic check.")
 
     # final verdict
     if cm_clusters > 0 and cm_matches >= 10:
-        verdict = "TAMPERED (Copy-Move Cloning)"
+        verdict = "COPY-MOVE-LIKE MATCHES FOUND"
         color = "#FF3333"
     elif risk_pct >= 65:
-        verdict = "HIGH PROBABILITY OF MANIPULATION"
+        verdict = "HIGH HEURISTIC RISK — REVIEW"
         color = "#FF4B4B"
     elif risk_pct >= 40:
-        verdict = "SUSPICIOUS"
+        verdict = "REVIEW RECOMMENDED"
         color = "#FFA500"
     else:
-        verdict = "LIKELY AUTHENTIC"
+        verdict = "NO STRONG INDICATORS FOUND"
         color = "#00CC66"
 
     return {

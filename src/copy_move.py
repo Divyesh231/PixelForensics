@@ -36,7 +36,7 @@ def detect_copy_move(image, method="auto", min_dist=35.0, ratio=0.72,
         "mask": empty_mask,
         "match_count": 0,
         "cluster_count": 0,
-        "confidence": 0.0,
+        "score": 0.0,
         "pairs": [],
     }
 
@@ -136,13 +136,13 @@ def detect_copy_move(image, method="auto", min_dist=35.0, ratio=0.72,
         kernel = np.ones((11, 11), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-    confidence = float(np.clip(len(confirmed) / 25.0, 0.0, 1.0))
+    score = float(np.clip(len(confirmed) / 25.0, 0.0, 1.0))
 
     return {
         "overlay": overlay,
         "mask": mask,
         "match_count": len(confirmed),
         "cluster_count": len(good_labels),
-        "confidence": confidence,
+        "score": score,
         "pairs": confirmed,
     }

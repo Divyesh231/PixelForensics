@@ -1,20 +1,26 @@
 # PixelForensics
 
-A digital image tampering analysis tool built with Python, OpenCV, and Streamlit.
+A digital image-forensics prototype built with Python, OpenCV, and Streamlit. It visualizes several handcrafted signals that may help a person inspect an image; it does not determine authenticity or prove tampering.
 
-PixelForensics uses passive (blind) image forensics to detect copy-move cloning, image splicing, and localized edits from a single photograph without needing the original unedited reference image.
+PixelForensics runs three exploratory checks on a single image without requiring an original reference: JPEG recompression difference (ELA), copy-move-like feature matching, and local high-frequency residual variation. Results are heuristics and should be interpreted alongside other evidence.
 
 ---
 
 ## Visual Output & Demo
 
-Analysis running on the MICC-F220 benchmark dataset:
+Example app runs on sample images from the included MICC-F220 collection. These screenshots illustrate the interface and outputs; they are not an accuracy benchmark.
 
-### 1. Cloned Object Detection — Antique Firearms (`DSC_0812tamp133.jpg`)
-![Firearms Tampering Detection](assets/Screenshot%202026-10-27%20165420.png)
+### Clean reference example — `CRW_4853_scale.jpg`
+The app shows a 34% heuristic risk score and does not find strong indicators in this run. The score is not a probability.
+![PixelForensics analysis of CRW_4853_scale.jpg](assets/Screenshot%202026-10-30%20120142.png)
 
-### 2. Duplicated Shelf Detection — Bookstore Aisle (`CRW_4853tamp27.jpg`)
-![Bookstore Tampering Detection](assets/Screenshot%202026-10-27%20165840.png)
+### Copy-move example — `CRW_4853tamp37.jpg`
+The app reports copy-move-like matches and a 71% heuristic risk score in this run.
+![PixelForensics analysis of CRW_4853tamp37.jpg](assets/Screenshot%202026-10-30%20120204.png)
+
+### Copy-move example — `DSC_0812tamp27.jpg`
+The app reports copy-move-like matches and a 63% heuristic risk score in this run.
+![PixelForensics analysis of DSC_0812tamp27.jpg](assets/Screenshot%202026-10-30%20120221.png)
 
 ---
 
@@ -25,33 +31,33 @@ Input Image (JPEG/PNG)
        |
        +---> Error Level Analysis (ELA)          --> JPEG quantization delta map
        +---> Copy-Move Detection (SIFT + DBSCAN) --> Vector trajectories & cloned hulls
-       +---> Sensor Noise Inconsistency          --> High-frequency residual variance map
+       +---> Local Residual Variation            --> Median-filter residual variance map
        |
-       +---> Multi-Modal Evidence Fusion         --> JET thermal overlay + confidence score
+       +---> Heuristic Evidence Fusion            --> JET heatmap + heuristic risk score
 ```
 
 ---
 
 ## Core Detection Engines
 
-### 1. Error Level Analysis (ELA)
-- **Principle**: Lossy JPEG compression introduces quantization error across 8x8 DCT blocks. Repeated saves reduce the error delta over time.
-- **Method**: The image is re-saved in memory at JPEG quality Q=90 and subtracted from the input. Spliced foreign content belongs to a different compression generation and shines brighter under differential amplification.
-- **Output**: Amplified difference view and a JET false-color thermal overlay.
+### 1. JPEG Recompression Difference (ELA)
+- **Method**: The image is re-saved in memory at a selected JPEG quality and subtracted from the input. The app displays an amplified difference view and heatmap.
+- **Interpretation**: Local differences can have many causes. This implementation does not identify compression generations or establish that a bright region was spliced.
+- **Output**: Amplified difference view and false-color heatmap.
 
 ### 2. Copy-Move Duplication Detection
-- **Principle**: Duplicated visual patches within the same image share identical local gradient features.
-- **Method**: Extracts SIFT keypoints and matches them against the image itself using k-NN with Lowe's ratio test (tau = 0.72). Spatial distance filtering removes adjacent texture matches. Surviving displacement vectors (dx, dy) are clustered using DBSCAN to group points that share consistent spatial translations.
-- **Output**: Trajectory lines linking cloned regions, convex hull contours, and a binary detection mask.
+- **Method**: Extracts SIFT keypoints (or ORB where SIFT is unavailable), filters self-matches by a ratio threshold and minimum distance, then clusters displacement vectors with DBSCAN.
+- **Interpretation**: Clusters are candidate copy-move-like matches; repetitive textures can produce false matches, and the implementation does not verify a geometric transform.
+- **Output**: Match trajectories, convex hull contours, and a candidate-region mask.
 
-### 3. Local Sensor Noise Inconsistency
-- **Principle**: Camera sensors imprint uniform high-frequency noise (PRNU and photon shot noise) across an authentic exposure. Spliced elements or generative fills exhibit mismatched local noise statistics.
-- **Method**: A 3x3 median filter suppresses noise while keeping structural edges intact. The absolute residual `|Original - Denoised|` is analyzed across sliding windows (default 16x16) using fast box filters to measure local variance deviation against the image-wide median noise.
-- **Output**: High-divergence noise deviation heatmap.
+### 3. Local Residual Variation
+- **Method**: A 3x3 median filter produces a residual `|Original - MedianFiltered|`. The code measures local residual standard deviation in sliding windows (default 16x16) and maps deviation from the image-wide median.
+- **Interpretation**: This is a simple local residual-variation heuristic. It does not estimate or match a camera-specific PRNU fingerprint; edges, texture, resizing, and compression can also affect it.
+- **Output**: Local residual-variation heatmap.
 
 ---
 
-## Included Benchmark Dataset (MICC-F220)
+## Included Example Dataset (MICC-F220)
 
 The repository comes pre-loaded with a copy of the **MICC-F220** dataset (University of Florence) under `examples/MICC-F220/`:
 
@@ -59,16 +65,11 @@ The repository comes pre-loaded with a copy of the **MICC-F220** dataset (Univer
 - Files named `_scale.jpg` are the original untouched photos (e.g. `DSCN45_scale.jpg`, `CRW_4853_scale.jpg`).
 - `groundtruthDB_220.txt` lists the ground truth labels (1 = tampered, 0 = authentic).
 
-### Benchmark Results on Sample Pairs
+The included dataset is useful for manual demonstrations. The repository does not currently include a reproducible benchmark runner or a measured accuracy evaluation, so no accuracy or confidence claims are made here.
 
-| Test Image | Type | SIFT Matches | Confirmed Clusters | Verdict |
-| :--- | :--- | :--- | :--- | :--- |
-| `DSCN45tamp1.jpg` | Tampered | 134 pairs | 1 cluster | TAMPERED (100% confidence) |
-| `DSCN45_scale.jpg` | Authentic Baseline | 0 pairs | 0 clusters | LIKELY AUTHENTIC |
-| `CRW_4853tamp1.jpg` | Tampered | 67 pairs | 2 clusters | TAMPERED (100% confidence) |
-| `CRW_4853_scale.jpg`| Authentic Baseline | 6 pairs | 0 clusters | LIKELY AUTHENTIC |
-| `DSC_0812tamp1.jpg` | Tampered | 68 pairs | 1 cluster | TAMPERED (100% confidence) |
-| `DSC_0812_scale.jpg`| Authentic Baseline | 0 pairs | 0 clusters | LIKELY AUTHENTIC |
+## Score interpretation
+
+The dashboard's 0–100 value is a **heuristic risk score**, computed from fixed weighted component scores. It is not calibrated against a validation set, is not the probability that an image was manipulated, and must not be used as forensic proof. “No strong indicators found” means only that these checks did not produce a high score.
 
 ---
 
@@ -111,11 +112,11 @@ tests/test_noise.py ..        [100%]
 ```text
 pixel-forensics/
 ├── app.py                  Main Streamlit dashboard and UI
-├── requirements.txt        Pinned dependencies
+├── requirements.txt        Minimum dependency versions
 ├── src/
 │   ├── ela.py              Error Level Analysis engine
 │   ├── copy_move.py        SIFT + DBSCAN copy-move detector
-│   ├── noise_analysis.py   Sensor noise variance analysis
+│   ├── noise_analysis.py   Local residual-variation analysis
 │   └── visualization.py    Thermal overlays, mask blending, and verdict logic
 ├── tests/
 │   ├── test_ela.py         Unit tests for ELA
@@ -135,5 +136,7 @@ pixel-forensics/
 ## Limitations
 
 - **Social Media Compression**: Platforms like WhatsApp or Instagram compress images heavily (Q < 65), which smooths out noise residuals and dampens ELA differential spikes.
-- **Lossless Formats**: ELA requires lossy JPEG compression history. Native PNG or BMP files that have never been saved as JPEG produce uniform zero error.
-- **Repetitive Textures**: Highly periodic patterns (brick walls, tile floors, fences) can trigger false feature matches. Increasing the minimum spatial distance slider (`min_dist >= 50px`) filters these out.
+- **Lossless formats**: ELA recompresses every input as JPEG, including PNG and BMP. Its differences on those files do not reveal a prior JPEG history and should not be interpreted as evidence of editing.
+- **Image size**: Uploaded images above 12 megapixels are rejected to limit memory and processing costs.
+- **Heuristic signals**: ELA and local residual variation are affected by image content and processing. They are not standalone proof of manipulation.
+- **Repetitive Textures**: Highly periodic patterns (brick walls, tile floors, fences) can trigger false feature matches. Increasing the minimum spatial distance slider (`min_dist >= 50px`) may reduce some of these matches but does not eliminate false positives.

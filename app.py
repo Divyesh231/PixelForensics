@@ -5,7 +5,7 @@ from io import BytesIO
 from pathlib import Path
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import streamlit as st
 
 from src.ela import compute_ela, make_ela_heatmap
@@ -127,14 +127,34 @@ with st.sidebar:
 
 # -- load the image ------------------------------------------------------------
 
+MAX_IMAGE_PIXELS = 12_000_000
+
+
+def decode_image(image_source):
+    """Decode a still image as RGB and reject inputs that are too large."""
+    with Image.open(image_source) as pil:
+        width, height = pil.size
+        if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+            raise ValueError("Image must contain no more than 12 megapixels.")
+        pil.load()
+        return np.array(pil.convert("RGB"), dtype=np.uint8)
+
+
 def load_image():
     if uploaded is not None:
-        raw = uploaded.read()
-        pil = Image.open(BytesIO(raw)).convert("RGB")
-        return np.array(pil, dtype=np.uint8), uploaded.name
+        try:
+            return decode_image(BytesIO(uploaded.getvalue())), uploaded.name
+        except (UnidentifiedImageError, OSError, ValueError,
+                Image.DecompressionBombError) as exc:
+            st.error(f"Could not load this image: {exc}")
+            return None, None
     elif choice != "Upload your own" and samples[choice]:
-        pil = Image.open(samples[choice]).convert("RGB")
-        return np.array(pil, dtype=np.uint8), Path(samples[choice]).name
+        try:
+            return decode_image(samples[choice]), Path(samples[choice]).name
+        except (UnidentifiedImageError, OSError, ValueError,
+                Image.DecompressionBombError) as exc:
+            st.error(f"Could not load the selected sample: {exc}")
+            return None, None
     return None, None
 
 
@@ -179,7 +199,7 @@ with st.spinner(f"Analyzing {fname}..."):
 
     # Verdict
     result = get_verdict(
-        ela_score, cm["confidence"], noise_score,
+        ela_score, cm["score"], noise_score,
         cm["match_count"], cm["cluster_count"]
     )
 
@@ -194,12 +214,13 @@ st.markdown(
 )
 
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Confidence", f"{result['risk_pct']}%")
+m1.metric("Heuristic risk score", f"{result['risk_pct']}%")
 m2.metric("Cloned Clusters", str(cm["cluster_count"]))
 m3.metric("Keypoint Matches", str(cm["match_count"]))
 m4.metric("Compression Gap", f"{int(ela_score * 100)}%")
 
 st.markdown("---")
+st.caption("This experimental score is based on fixed heuristics; it is not a calibrated probability or proof of manipulation.")
 
 
 # -- result tabs ---------------------------------------------------------------
@@ -289,13 +310,13 @@ with tabs[4]:
 {'='*50}
 File: {fname}
 Verdict: {result['verdict']}
-Confidence: {result['risk_pct']}%
+Heuristic risk score: {result['risk_pct']}% (not a calibrated probability)
 
 COPY-MOVE
   Matches: {cm['match_count']}
   Clusters: {cm['cluster_count']}
   Method: {cm_algo.upper()}
-  Score: {cm['confidence']:.2f}
+  Heuristic score: {cm['score']:.2f}
 
 ELA
   Quality: Q={ela_q}

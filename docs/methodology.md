@@ -1,69 +1,51 @@
-# PixelForensics — Mathematical & Algorithmic Methodology
+# PixelForensics: implementation and methodology
 
-## 1. Introduction
+## Purpose and scope
 
-Digital image tampering typically falls into three primary categories:
-1. **Copy-Move (Cloning):** Copying a patch from an image and pasting it into another location within the same image (e.g. duplicating crowds or concealing incriminating evidence).
-2. **Splicing (Compositing):** Extracting an object from a separate image and inserting it into the target frame.
-3. **Inpainting / Generative Fill:** Using generative AI or texture synthesis algorithms to erase or alter objects.
+PixelForensics is an educational image-forensics prototype. It computes three heuristic indicators and displays them as visual aids: JPEG recompression difference, copy-move-like feature matches, and local high-frequency residual variation. The indicators are not calibrated, and the tool cannot establish that an image is authentic or manipulated.
 
-PixelForensics applies a multi-modal heuristic analysis combining spatial-frequency transformations, feature geometry, and statistical noise residuals to detect and localize these manipulations without relying on fragile black-box neural networks.
+## 1. JPEG recompression difference (ELA)
 
----
+The input is converted to RGB, encoded in memory as JPEG at a user-selected quality, decoded, then subtracted from the input:
 
-## 2. Forensic Engines
+\[D(x,y,c)=|I(x,y,c)-J_Q(x,y,c)|\]
 
-### 2.1 Error Level Analysis (ELA)
-When a raw image is saved as a JPEG, the image undergoes Discrete Cosine Transform (DCT) block quantization:
+The UI shows the amplified difference and a heatmap. The scalar ELA indicator is clipped from the spread between the 95th and 50th percentiles of the per-pixel mean RGB difference:
 
-$$F_{Q}(u, v) = \text{round}\left(\frac{\text{DCT}(f(x, y))}{Q(u, v)}\right)$$
+\[s_{ELA}=\operatorname{clip}((P_{95}(d)-P_{50}(d))/18,0,1)\]
 
-Every subsequent save operation degrades the high-frequency coefficients further until an equilibrium is reached. If an external element is spliced into a JPEG image, the spliced region is at its **first generation of quantization**, while the background is at its **second (or subsequent) generation**.
+This implementation does not identify or segment a pasted region, infer compression generations, or validate a threshold against a dataset. Image content and encoding choices affect the result. For a PNG input, the image is still re-encoded as JPEG for this comparison.
 
-PixelForensics recompresses the image at quality $Q_{\text{test}} = 90$ and calculates the absolute residual:
+## 2. Copy-move-like feature matching
 
-$$\Delta(x, y) = |I_{\text{original}}(x, y) - I_{\text{recompressed}}(x, y)|$$
+The implementation converts the RGB image to grayscale and uses SIFT when available, with ORB as a fallback. A brute-force matcher searches each descriptor against the same image. Candidate matches pass a ratio threshold and a minimum keypoint distance. Their displacement vectors are clustered with DBSCAN; clusters are drawn as lines/hulls and expanded into a visualization mask.
 
-Regions that diverge significantly in error level relative to the global canvas mean indicate inconsistent compression histories.
+The component score is `min(confirmed cluster matches / 25, 1)`. This is a count-based heuristic, not a confidence estimate. There is no reciprocal-match requirement, transform estimation, or dataset-calibrated false-positive threshold. Repeated textures and feature-poor images can produce missed or spurious matches.
 
-### 2.2 Copy-Move Duplication Detection (Amerini et al.)
-Natural scenes contain high feature diversity. When an object is duplicated:
-1. **Feature Extraction:** Scale-Invariant Feature Transform (SIFT) or ORB descriptors are extracted:
-   $$D = \{d_1, d_2, \dots, d_N\}, \quad d_i \in \mathbb{R}^{128}$$
-2. **Self-Matching:** Descriptors are cross-matched against themselves using $k$-nearest neighbors ($k=2$).
-3. **Lowe's Ratio Test:** Matches are retained only if:
-   $$\frac{\|d_i - d_{\text{match1}}\|}{\|d_i - d_{\text{match2}}\|} < \tau_{\text{ratio}} \quad (\tau \approx 0.72)$$
-4. **Spatial Displacement Filtering:** Pairs closer than $D_{\text{min}}$ pixels are discarded to eliminate dense repetitive textures (e.g. brick walls, foliage).
-5. **DBSCAN Vector Clustering:** Authentic copy-move manipulations share a consistent spatial translation vector:
-   $$\vec{v} = (x_2 - x_1, y_2 - y_1)$$
-   PixelForensics clusters displacement vectors using Density-Based Spatial Clustering of Applications with Noise (DBSCAN). Random false matches have chaotic translation angles, while cloned objects form high-density clusters in displacement space.
+## 3. Local residual-variation map
 
-### 2.3 Sensor Noise Inconsistency (Lyu et al.)
-Every imaging sensor exhibits Photo-Response Non-Uniformity (PRNU) and photon shot noise. The noise profile across a pristine photograph follows a uniform Gaussian distribution:
+The grayscale image is median-filtered with a 3x3 kernel. The absolute residual is computed as `R = |I - median(I)|`. A box filter estimates local residual variance in the selected window size. The map shows absolute deviation of the local residual standard deviation from its global median, scaled by the 98th percentile.
 
-$$I(x, y) = S(x, y) + \eta(x, y), \quad \eta \sim \mathcal{N}(0, \sigma^2)$$
+The scalar indicator is `min(12 * fraction_of_map_pixels_above_180, 1)`. This is a local texture/residual statistic. It does **not** estimate or correlate Photo-Response Non-Uniformity (PRNU), and it is sensitive to edges, texture, compression, resizing, and denoising.
 
-When foreign content is spliced in:
-1. High-frequency noise is isolated via median denoising:
-   $$R(x, y) = |I(x, y) - \text{MedianFilter}_{3\times3}(I(x, y))|$$
-2. Local noise variance is computed across a sliding window $W$ of size $k \times k$:
-   $$\text{Var}(R) = \frac{1}{|W|}\sum_{(u, v) \in W} R(u, v)^2 - \left(\frac{1}{|W|}\sum_{(u, v) \in W} R(u, v)\right)^2$$
-3. Anomalous local deviations from the global median noise level indicate spliced elements or synthetic smoothing.
+## 4. Fused map and risk score
 
----
+The fused visualization combines per-pixel maps after normalizing them to their own ranges:
 
-## 3. Multi-Modal Evidence Fusion
+\[M=0.50M_{copy}+0.30M_{ELA}+0.20M_{residual}\]
 
-Rather than presenting disjointed outputs, PixelForensics calculates an integrated risk score:
+The dashboard's scalar heuristic score combines component scores with the same weights:
 
-$$S_{\text{composite}} = w_{\text{cm}} \cdot S_{\text{cm}} + w_{\text{ela}} \cdot S_{\text{ela}} + w_{\text{noise}} \cdot S_{\text{noise}}$$
+\[R=0.50s_{copy}+0.30s_{ELA}+0.20s_{residual}\]
 
-Where $w_{\text{cm}} = 0.50$, $w_{\text{ela}} = 0.30$, and $w_{\text{noise}} = 0.20$. Structural feature duplication carries the highest weight because keypoint clustering produces the lowest false-discovery rate in uncompressed domains.
+The UI displays `100 * R` as an integer truncated toward zero. A copy-move-like cluster with at least ten confirmed matches overrides the scalar thresholds; otherwise the app uses 65 and 40 as high-risk and review thresholds. Map normalization and scalar component calculations are different operations; the heatmap is a qualitative visualization and does not encode the scalar score pixel-for-pixel. The percentage is **not a probability** because the weights and component scales have not been calibrated against labeled validation data.
 
----
+## Limitations and evaluation status
 
-## 4. Scientific Limitations (Honest Disclosure)
+- Whole-image recompression can obscure or create differences; ELA is not a stand-alone splicing detector.
+- Copy-move matches can fail on smooth regions and false-match on repetitive patterns.
+- Residual variation is not sensor fingerprint analysis and is not specific to tampering.
+- Social-media recompression, resizing, denoising, and image content can change all three signals.
+- The repository includes MICC-F220 examples but no reproducible benchmark runner or aggregate evaluation metrics. The examples are demonstrations, not measured accuracy evidence.
 
-1. **Re-compression Attenuation:** If an entire tampered image is re-saved at low JPEG quality (e.g., WhatsApp or social media compression $Q < 60$), ELA differentials are significantly smoothed out.
-2. **Periodic Textures:** Strongly repetitive textures (e.g., tiled floors, skyscrapers, chain-link fences) can produce dense feature matches that require strict DBSCAN epsilon tuning.
-3. **Lossless Images:** ELA is ineffective on native PNGs or BMPs that have never been subject to lossy DCT quantization.
+For research use, evaluate on held-out labeled images, report precision/recall/F1 and false-positive examples, record all settings and dependency versions, and calibrate any probability claims separately.
